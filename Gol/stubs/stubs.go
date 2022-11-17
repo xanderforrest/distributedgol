@@ -1,7 +1,10 @@
 package stubs
 
+import "uk.ac.bris.cs/gameoflife/util"
+
 //syntax meaning ---- handler = "exported_type.exported_method"
 var ProcessTurnsHandler = "GameOfLifeOperations.ProcessTurns"
+var FinalTurnCompleteHandler = "GameOfLifeOperations.FinalTurnComplete"
 
 type Request struct {
 	InitialWorld                   [][]byte
@@ -9,5 +12,7 @@ type Request struct {
 }
 
 type Response struct {
-	FinalWorld [][]byte
+	FinalWorld     [][]byte
+	CompletedTurns int
+	AliceCells     []util.Cell
 }

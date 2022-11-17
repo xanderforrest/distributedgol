@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"math/rand"
 	"net"
 	"net/rpc"
@@ -116,19 +115,22 @@ type GameOfLifeOperations struct{}
 
 //these are methods - can be accessed by local controller via rpc
 func (s *GameOfLifeOperations) ProcessTurns(req stubs.Request, res *stubs.Response) (err error) {
-	fmt.Println("Processing turns... remotely.... so cool")
-	turns := req.Turns
-	turn := 0
-	world := append(req.InitialWorld)
 
-	for turn < turns {
+	turn := 0
+
+	world := req.InitialWorld
+
+	for turn < req.Turns {
+
 		world = calculateNextState(req, world)
 		turn++
+
 	}
 
-	//res.TurnsComplete = turns
-	//res.AliveCells = calculateAliveCells(args.Width, args.Height, world)
-	fmt.Println("Returning info... so cool pt2")
+	res.FinalWorld = world
+	res.CompletedTurns = turn
+	res.AliceCells = calculateAliveCells(req, world)
+
 	return
 }
 

@@ -62,9 +62,18 @@ func distributor(p Params, c distributorChannels) {
 	}
 	defer client.Close()
 
-	makeCall(client, initialWorld, p.Turns, p.ImageHeight, p.ImageWidth)
+	//makeCall(client, initialWorld, p.Turns, p.ImageHeight, p.ImageWidth)
+
+	request := stubs.Request{InitialWorld: initialWorld, Turns: p.Turns, ImageHeight: p.ImageHeight, ImageWidth: p.ImageWidth}
+	response := new(stubs.Response)
+	client.Call(stubs.ProcessTurnsHandler, request, response)
 
 	// TODO: Report the final state using FinalTurnCompleteEvent.
+
+	c.events <- FinalTurnComplete{
+		CompletedTurns: response.CompletedTurns,
+		Alive:          response.AliceCells,
+	}
 
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle

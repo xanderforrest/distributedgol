@@ -61,7 +61,7 @@ type TurnComplete struct { // implements Event
 
 // FinalTurnComplete is an Event notifying the testing framework about the new world state after execution finished.
 // The data included with this Event is used directly by the tests.
-// SDL closes the window when this Event is sent.
+//// SDL closes the window when this Event is sent.
 type FinalTurnComplete struct {
 	CompletedTurns int
 	Alive          []util.Cell
