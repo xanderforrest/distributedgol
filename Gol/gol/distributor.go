@@ -4,6 +4,8 @@ import (
 	"log"
 	"net/rpc"
 	"strconv"
+	"sync"
+	"time"
 	"uk.ac.bris.cs/gameoflife/stubs"
 )
 
@@ -67,6 +69,24 @@ func distributor(p Params, c distributorChannels) {
 	request := stubs.Request{InitialWorld: initialWorld, Turns: p.Turns, ImageHeight: p.ImageHeight, ImageWidth: p.ImageWidth}
 	response := new(stubs.Response)
 	client.Call(stubs.ProcessTurnsHandler, request, response)
+
+	ticker := time.NewTicker(2 * time.Second)
+	done := make(chan bool)
+
+	var m sync.Mutex
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				m.Lock()
+				c.events <- AliveCellsCount{turn, calculateCount(p, world)}
+				m.Unlock()
+			}
+		}
+	}()
 
 	// TODO: Report the final state using FinalTurnCompleteEvent.
 
