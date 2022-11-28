@@ -131,6 +131,11 @@ func calculateAliveCount(world [][]byte) int {
 	return count
 }
 
+/*
+func (g *GolEngine) ProcessTurn(args stubs.EngineArgs, res *stubs.EngineResponse) (err error) {
+
+}
+*/
 func (g *GolEngine) ProcessTurns(args stubs.GolArgs, res *stubs.GolAliveCells) (err error) {
 	if !working { // If ProcessTurns is called again, it's a new client connection, continue working on current job
 		turns = args.Turns
