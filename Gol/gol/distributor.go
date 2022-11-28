@@ -1,9 +1,9 @@
 package gol
 
 import (
+	"fmt"
 	"net/rpc"
 	"strconv"
-	"sync"
 	"time"
 	"uk.ac.bris.cs/gameoflife/gol/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
@@ -81,39 +81,34 @@ func distributor(p Params, c distributorChannels) {
 	turns := p.Turns
 	turn := 0
 
-	var m sync.Mutex
-
 	ticker := time.NewTicker(2 * time.Second)
 	done := make(chan bool)
 
 	//calculate next state depending on the number of threads
 
-	if p.Threads == 1 {
+	client, _ := rpc.Dial("tcp", "127.0.0.1:8030")
+	defer client.Close()
 
-		client, _ := rpc.Dial("tcp", "127.0.0.1:8030")
-		defer client.Close()
+	golArgs := stubs.GolArgs{Height: p.ImageHeight, Width: p.ImageWidth, Turns: p.Turns, World: world}
+	response := new(stubs.GolAliveCells)
 
-		golArgs := stubs.GolArgs{Height: p.ImageHeight, Width: p.ImageWidth, Turns: p.Turns, World: world}
-		response := new(stubs.GolAliveCells)
-
-		go func() {
-			for {
-				select {
-				case <-done:
-					return
-				case <-ticker.C:
-					m.Lock()
-					c.events <- AliveCellsCount{turn, calculateCount(p, world)}
-					m.Unlock()
-				}
-			}
-		}()
-
-		client.Call(stubs.ProcessTurns, golArgs, response)
-		c.events <- FinalTurnComplete{response.TurnsComplete, response.AliveCells}
-
-	} else {
-		return
+	rpcCall := client.Go(stubs.ProcessTurns, golArgs, response, nil)
+	for {
+	out:
+		select {
+		case <-ticker.C:
+			fmt.Println("Ticker has ticked client side")
+			//yada
+			tickResponse := new(stubs.TickReport)
+			client.Call(stubs.DoTick, true, tickResponse)
+			c.events <- AliveCellsCount{tickResponse.Turns, tickResponse.AliveCount}
+		case <-rpcCall.Done:
+			fmt.Println("RPC call is done")
+			c.events <- FinalTurnComplete{response.TurnsComplete, response.AliveCells}
+			done <- true
+		case <-done:
+			break out
+		}
 	}
 
 	//write final state of the world to pgm image

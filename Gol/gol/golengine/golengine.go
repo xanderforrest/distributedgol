@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"net"
 	"net/rpc"
+	"sync"
 	"uk.ac.bris.cs/gameoflife/gol/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
 
 type GolEngine struct{}
+
+var world [][]byte
+var turn int
+var m sync.Mutex
 
 func isAlive(cell byte) bool {
 	if cell == 255 {
@@ -107,20 +112,44 @@ func calculateAliveCells(width, height int, world [][]byte) []util.Cell {
 	return newCell
 }
 
+func calculateAliveCount(world [][]byte) int {
+	count := 0
+	for x := range world {
+		for y := range world[x] {
+			if isAlive(world[x][y]) {
+				count++
+			}
+		}
+	}
+	return count
+}
+
 func (g *GolEngine) ProcessTurns(args stubs.GolArgs, res *stubs.GolAliveCells) (err error) {
 	fmt.Println("Processing turns... remotely.... so cool")
 	turns := args.Turns
-	turn := 0
-	world := append(args.World)
+	turn = 0
+	world = args.World
 
 	for turn < turns {
+		m.Lock()
+		fmt.Println(turn)
 		world = calculateNextState(args.Width, args.Height, world)
 		turn++
+		m.Unlock()
 	}
 
 	res.TurnsComplete = turns
 	res.AliveCells = calculateAliveCells(args.Width, args.Height, world)
 	fmt.Println("Returning info... so cool pt2")
+	return
+}
+
+func (g *GolEngine) DoTick(_ bool, res *stubs.TickReport) (err error) {
+	fmt.Println("Got do tick request...")
+	m.Lock()
+	res.AliveCount = calculateAliveCount(world)
+	res.Turns = turn
+	m.Unlock()
 	return
 }
 
