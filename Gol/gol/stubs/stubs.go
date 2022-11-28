@@ -7,6 +7,8 @@ var DoTick = "GolEngine.DoTick"
 var PauseEngine = "GolEngine.PauseEngine"
 var ResumeEngine = "GolEngine.ResumeEngine"
 var InterruptEngine = "GolEngine.InterruptEngine"
+var CheckStatus = "GolEngine.CheckStatus"
+var KillEngine = "GolEngine.KillEngine"
 
 type GolArgs struct {
 	World                [][]byte
@@ -23,6 +25,7 @@ type TickReport struct {
 	AliveCount int
 }
 
-type CurrentTurn struct {
-	Turn int
+type EngineStatus struct {
+	Working bool
+	Turn    int
 }

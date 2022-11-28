@@ -3,6 +3,7 @@ package gol
 import (
 	"fmt"
 	"net/rpc"
+	"os"
 	"strconv"
 	"time"
 	"uk.ac.bris.cs/gameoflife/gol/stubs"
@@ -19,55 +20,30 @@ type distributorChannels struct {
 	keyPresses <-chan rune
 }
 
-//count the number of alive cells
-func calculateCount(p Params, world [][]byte) int {
-	sum := 0
+func savePGM(p Params, c distributorChannels, aliveCells []util.Cell, turns int) {
+	c.ioCommand <- ioOutput
+	c.ioFilename <- strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(turns)
+
 	for i := 0; i < p.ImageHeight; i++ {
 		for j := 0; j < p.ImageWidth; j++ {
-			if world[i][j] != 0 {
-				sum++
+			var value byte = 0
+			for _, cell := range aliveCells {
+				if cell.X == j && cell.Y == i {
+					value = 255
+				}
 			}
+			c.ioOutput <- value
 		}
 	}
-	return sum
-}
-
-//worker function for multiple threaded case
-
-//make an uninitialised matrix
-func makeMatrix(height, width int) [][]uint8 {
-	matrix := make([][]uint8, height)
-	for i := range matrix {
-		matrix[i] = make([]uint8, width)
-	}
-	return matrix
-}
-
-//report the CellFlipped event when a cell changes state
-func compareWorlds(old, new [][]byte, c *distributorChannels, turn int, p Params) {
-	for i := 0; i < p.ImageHeight; i++ {
-		for j := 0; j < p.ImageWidth; j++ {
-			if old[i][j] != new[i][j] {
-				c.events <- CellFlipped{turn, util.Cell{j, i}}
-			}
-		}
-	}
+	fmt.Println("Finished saving PGM: " + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(turns))
 }
 
 func distributor(p Params, c distributorChannels) {
 	imageHeight := p.ImageHeight
 	imageWidth := p.ImageWidth
 
-	heightString := strconv.Itoa(imageHeight)
-	widthString := strconv.Itoa(imageWidth)
-
-	filename := heightString + "x" + widthString
-
-	//read in the initial configuration of the world
-
 	c.ioCommand <- ioInput
-
-	c.ioFilename <- filename
+	c.ioFilename <- strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight)
 
 	world := make([][]uint8, imageHeight)
 	for i := 0; i < imageHeight; i++ {
@@ -85,6 +61,14 @@ func distributor(p Params, c distributorChannels) {
 
 	golArgs := stubs.GolArgs{Height: p.ImageHeight, Width: p.ImageWidth, Turns: p.Turns, World: world}
 	response := new(stubs.GolAliveCells)
+
+	status := new(stubs.EngineStatus)
+	client.Call(stubs.CheckStatus, true, status)
+	if status.Working {
+		fmt.Println("Resuming connection to Engine, which is at turn: " + strconv.Itoa(status.Turn))
+	} else {
+		fmt.Println("Sending job to Engine.")
+	}
 
 	rpcCall := client.Go(stubs.ProcessTurns, golArgs, response, nil)
 
@@ -107,28 +91,26 @@ func distributor(p Params, c distributorChannels) {
 			switch kp {
 			case 'p':
 				if workersPaused {
-					fmt.Printf("Instructing workers to resume...")
-					resumedTurn := new(stubs.CurrentTurn)
+					fmt.Printf("Instructing workers to resume... (continuing)")
+					resumedTurn := new(stubs.EngineStatus)
 					client.Call(stubs.ResumeEngine, true, resumedTurn)
 					workersPaused = false
 					fmt.Println("Workers resumed at turn: " + strconv.Itoa(resumedTurn.Turn))
 				} else {
 					fmt.Println("Instructing workers to pause...")
-					pausedTurn := new(stubs.CurrentTurn)
+					pausedTurn := new(stubs.EngineStatus)
 					client.Call(stubs.PauseEngine, true, pausedTurn)
 					workersPaused = true
 					fmt.Println("Workers paused at turn: " + strconv.Itoa(pausedTurn.Turn))
 				}
 			case 'q':
 				if workersPaused {
-					fmt.Println("All excecution currently paused. Please resume to quit the world.")
+					fmt.Println("All execution currently paused. Please resume to quit the world.")
 				} else {
-					fmt.Println("Quitting, getting state from workers & saving PGM.")
-					earlyResponse := new(stubs.GolAliveCells)
-					client.Call(stubs.InterruptEngine, true, earlyResponse)
-					returnedCells = earlyResponse.AliveCells
-					turnsComplete = earlyResponse.TurnsComplete
-					goto Exit
+					fmt.Println("Quitting, closing client side.")
+					c.ioCommand <- ioCheckIdle
+					<-c.ioIdle
+					close(c.events)
 				}
 			case 's':
 				if workersPaused {
@@ -141,25 +123,31 @@ func distributor(p Params, c distributorChannels) {
 					returnedCells = earlyResponse.AliveCells
 					turnsComplete = earlyResponse.TurnsComplete
 
-					c.ioCommand <- ioOutput
-					c.ioFilename <- filename + "x" + strconv.Itoa(turnsComplete)
+					savePGM(p, c, returnedCells, turnsComplete)
+				}
+			case 'k':
+				if workersPaused {
+					fmt.Println("All excecution currently paused. Please resume to shutdown Engines.")
+				} else {
+					fmt.Println("Saving PGM...")
+					earlyResponse := new(stubs.GolAliveCells)
+					client.Call(stubs.InterruptEngine, true, earlyResponse)
 
-					for i := 0; i < imageHeight; i++ {
-						for j := 0; j < imageWidth; j++ {
-							var value byte = 0
-							for _, cell := range returnedCells {
-								if cell.X == i && cell.Y == j {
-									value = 255
-								}
-							}
-							c.ioOutput <- value
-						}
-					}
-					fmt.Println("Finished saving PGM: " + filename + "x" + strconv.Itoa(turnsComplete))
+					returnedCells = earlyResponse.AliveCells
+					turnsComplete = earlyResponse.TurnsComplete
+
+					savePGM(p, c, returnedCells, turnsComplete)
+
+					fmt.Println("Shutting down Engines...")
+					client.Call(stubs.KillEngine, true, true)
+					fmt.Println("Engine shut down.")
+					c.ioCommand <- ioCheckIdle
+					<-c.ioIdle
+					os.Exit(0)
 				}
 			}
 		case <-rpcCall.Done:
-			fmt.Println("RPC call is done")
+			fmt.Println("===== Engine has finished processing turns =====")
 			returnedCells = response.AliveCells
 			turnsComplete = response.TurnsComplete
 
@@ -167,32 +155,16 @@ func distributor(p Params, c distributorChannels) {
 			goto Exit
 		}
 	}
+
 Exit:
 	fmt.Println("Saving PGM & shutting down controller.")
-
-	//write final state of the world to pgm image
-
-	c.ioCommand <- ioOutput
-	c.ioFilename <- filename + "x" + strconv.Itoa(turnsComplete)
-
-	for i := 0; i < imageHeight; i++ {
-		for j := 0; j < imageWidth; j++ {
-			var value byte = 0
-			for _, cell := range returnedCells {
-				if cell.X == i && cell.Y == j {
-					value = 255
-				}
-			}
-			c.ioOutput <- value
-		}
-	}
+	savePGM(p, c, returnedCells, turnsComplete)
 
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 
 	c.events <- StateChange{turnsComplete, Quitting}
-
-	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
 	close(c.events)
+
 }

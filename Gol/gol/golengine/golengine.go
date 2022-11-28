@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/rpc"
+	"os"
 	"strconv"
 	"sync"
 	"uk.ac.bris.cs/gameoflife/gol/stubs"
@@ -14,10 +15,13 @@ import (
 type GolEngine struct{}
 
 var world [][]byte
-var turn int
+var turn = 0
+var turns int
 var m sync.Mutex
 var width int
 var height int
+var working = false
+var listener net.Listener
 
 func isAlive(cell byte) bool {
 	if cell == 255 {
@@ -105,10 +109,10 @@ func calculateNextState(width, height int, world [][]byte) [][]byte {
 
 func calculateAliveCells(width, height int, world [][]byte) []util.Cell {
 	newCell := []util.Cell{}
-	for i := 0; i < height; i++ {
-		for j := 0; j < width; j++ {
-			if world[i][j] == 0xff {
-				newCell = append(newCell, util.Cell{i, j})
+	for x := 0; x < width; x++ {
+		for y := 0; y < height; y++ {
+			if world[x][y] == 0xff {
+				newCell = append(newCell, util.Cell{y, x})
 			}
 		}
 	}
@@ -128,16 +132,29 @@ func calculateAliveCount(world [][]byte) int {
 }
 
 func (g *GolEngine) ProcessTurns(args stubs.GolArgs, res *stubs.GolAliveCells) (err error) {
-	fmt.Println("Processing turns... remotely.... so cool")
-	turns := args.Turns
-	turn = 0
-	world = args.World
-	width = args.Width
-	height = args.Height
+	if !working { // If ProcessTurns is called again, it's a new client connection, continue working on current job
+		turns = args.Turns
+		turn = 0
+		world = args.World
+		width = args.Width
+		height = args.Height
+		working = true
+
+		n := 0
+		for n < 10 {
+			n++
+			fmt.Println("========== STARTING PROCESSING " + strconv.Itoa(turn) + "/" + strconv.Itoa(args.Turns) + "TURNS ==========")
+		}
+
+	} else {
+		fmt.Println("Client called ProcessTurns while still working, continuing work")
+	}
 
 	for turn < turns {
 		m.Lock()
-		fmt.Println(turn)
+		if turn%50 == 0 {
+			fmt.Println("Engine Processing Turn: " + strconv.Itoa(turn))
+		}
 		world = calculateNextState(width, height, world)
 		turn++
 		m.Unlock()
@@ -145,7 +162,12 @@ func (g *GolEngine) ProcessTurns(args stubs.GolArgs, res *stubs.GolAliveCells) (
 
 	res.TurnsComplete = turns
 	res.AliveCells = calculateAliveCells(width, height, world)
-	fmt.Println("Returning info... so cool pt2")
+	working = false
+	n := 0
+	for n < 10 {
+		n++
+		fmt.Println("========== FINISHED PROCESSING ALL " + strconv.Itoa(turn) + " TURNS ==========")
+	}
 	return
 }
 
@@ -158,16 +180,18 @@ func (g *GolEngine) DoTick(_ bool, res *stubs.TickReport) (err error) {
 	return
 }
 
-func (g *GolEngine) PauseEngine(_ bool, res *stubs.CurrentTurn) (err error) {
+func (g *GolEngine) PauseEngine(_ bool, res *stubs.EngineStatus) (err error) {
 	m.Lock()
 	fmt.Println("pausing engine on turn " + strconv.Itoa(turn) + "...")
 	res.Turn = turn
+	res.Working = working
 	return
 }
 
-func (g *GolEngine) ResumeEngine(_ bool, res *stubs.CurrentTurn) (err error) {
+func (g *GolEngine) ResumeEngine(_ bool, res *stubs.EngineStatus) (err error) {
 	fmt.Println("resuming engine from turn " + strconv.Itoa(turn))
 	res.Turn = turn
+	res.Working = working
 	m.Unlock()
 	return
 }
@@ -179,6 +203,20 @@ func (g *GolEngine) InterruptEngine(_ bool, res *stubs.GolAliveCells) (err error
 	res.TurnsComplete = turn
 	res.AliveCells = calculateAliveCells(width, height, world)
 	m.Unlock()
+	return
+}
+
+func (g *GolEngine) CheckStatus(_ bool, res *stubs.EngineStatus) (err error) {
+	m.Lock()
+	res.Turn = turn
+	res.Working = working
+	m.Unlock()
+	return
+}
+
+func (g *GolEngine) KillEngine(_ bool, _ *bool) (err error) {
+	fmt.Println("Shutting down...")
+	os.Exit(0)
 	return
 }
 
