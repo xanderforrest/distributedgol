@@ -105,7 +105,7 @@ func calculateAliveCells(width, height int, world [][]byte) []util.Cell {
 	for i := 0; i < height; i++ {
 		for j := 0; j < width; j++ {
 			if world[i][j] == 0xff {
-				newCell = append(newCell, util.Cell{j, i})
+				newCell = append(newCell, util.Cell{i, j})
 			}
 		}
 	}

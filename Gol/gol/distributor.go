@@ -82,7 +82,6 @@ func distributor(p Params, c distributorChannels) {
 	turn := 0
 
 	ticker := time.NewTicker(2 * time.Second)
-	done := make(chan bool)
 
 	//calculate next state depending on the number of threads
 
@@ -93,8 +92,8 @@ func distributor(p Params, c distributorChannels) {
 	response := new(stubs.GolAliveCells)
 
 	rpcCall := client.Go(stubs.ProcessTurns, golArgs, response, nil)
+	var returnedCells []util.Cell
 	for {
-	out:
 		select {
 		case <-ticker.C:
 			fmt.Println("Ticker has ticked client side")
@@ -104,12 +103,13 @@ func distributor(p Params, c distributorChannels) {
 			c.events <- AliveCellsCount{tickResponse.Turns, tickResponse.AliveCount}
 		case <-rpcCall.Done:
 			fmt.Println("RPC call is done")
+			returnedCells = response.AliveCells
 			c.events <- FinalTurnComplete{response.TurnsComplete, response.AliveCells}
-			done <- true
-		case <-done:
-			break out
+			goto Exit
 		}
 	}
+Exit:
+	fmt.Println("Escaped")
 
 	//write final state of the world to pgm image
 
@@ -118,7 +118,13 @@ func distributor(p Params, c distributorChannels) {
 
 	for i := 0; i < imageHeight; i++ {
 		for j := 0; j < imageWidth; j++ {
-			c.ioOutput <- world[i][j]
+			var value byte = 0
+			for _, cell := range returnedCells {
+				if cell.X == i && cell.Y == j {
+					value = 255
+				}
+			}
+			c.ioOutput <- value
 		}
 	}
 
