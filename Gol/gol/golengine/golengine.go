@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/rpc"
+	"strconv"
 	"sync"
 	"uk.ac.bris.cs/gameoflife/gol/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
@@ -15,6 +16,8 @@ type GolEngine struct{}
 var world [][]byte
 var turn int
 var m sync.Mutex
+var width int
+var height int
 
 func isAlive(cell byte) bool {
 	if cell == 255 {
@@ -129,17 +132,19 @@ func (g *GolEngine) ProcessTurns(args stubs.GolArgs, res *stubs.GolAliveCells) (
 	turns := args.Turns
 	turn = 0
 	world = args.World
+	width = args.Width
+	height = args.Height
 
 	for turn < turns {
 		m.Lock()
 		fmt.Println(turn)
-		world = calculateNextState(args.Width, args.Height, world)
+		world = calculateNextState(width, height, world)
 		turn++
 		m.Unlock()
 	}
 
 	res.TurnsComplete = turns
-	res.AliveCells = calculateAliveCells(args.Width, args.Height, world)
+	res.AliveCells = calculateAliveCells(width, height, world)
 	fmt.Println("Returning info... so cool pt2")
 	return
 }
@@ -149,6 +154,30 @@ func (g *GolEngine) DoTick(_ bool, res *stubs.TickReport) (err error) {
 	m.Lock()
 	res.AliveCount = calculateAliveCount(world)
 	res.Turns = turn
+	m.Unlock()
+	return
+}
+
+func (g *GolEngine) PauseEngine(_ bool, res *stubs.CurrentTurn) (err error) {
+	m.Lock()
+	fmt.Println("pausing engine on turn " + strconv.Itoa(turn) + "...")
+	res.Turn = turn
+	return
+}
+
+func (g *GolEngine) ResumeEngine(_ bool, res *stubs.CurrentTurn) (err error) {
+	fmt.Println("resuming engine from turn " + strconv.Itoa(turn))
+	res.Turn = turn
+	m.Unlock()
+	return
+}
+
+func (g *GolEngine) InterruptEngine(_ bool, res *stubs.GolAliveCells) (err error) {
+	m.Lock()
+	fmt.Println("Interrupt triggered, returning current work to controller.")
+
+	res.TurnsComplete = turn
+	res.AliveCells = calculateAliveCells(width, height, world)
 	m.Unlock()
 	return
 }

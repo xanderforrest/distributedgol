@@ -78,12 +78,7 @@ func distributor(p Params, c distributorChannels) {
 		}
 	}
 
-	turns := p.Turns
-	turn := 0
-
 	ticker := time.NewTicker(2 * time.Second)
-
-	//calculate next state depending on the number of threads
 
 	client, _ := rpc.Dial("tcp", "127.0.0.1:8030")
 	defer client.Close()
@@ -92,29 +87,93 @@ func distributor(p Params, c distributorChannels) {
 	response := new(stubs.GolAliveCells)
 
 	rpcCall := client.Go(stubs.ProcessTurns, golArgs, response, nil)
+
 	var returnedCells []util.Cell
+	var turnsComplete int
+	var workersPaused = false
+
 	for {
 		select {
 		case <-ticker.C:
-			fmt.Println("Ticker has ticked client side")
-			//yada
-			tickResponse := new(stubs.TickReport)
-			client.Call(stubs.DoTick, true, tickResponse)
-			c.events <- AliveCellsCount{tickResponse.Turns, tickResponse.AliveCount}
+			if workersPaused {
+				fmt.Printf("Ignoring Tick as workers paused")
+			} else {
+				fmt.Println("Ticker has ticked client side")
+				tickResponse := new(stubs.TickReport)
+				client.Call(stubs.DoTick, true, tickResponse)
+				c.events <- AliveCellsCount{tickResponse.Turns, tickResponse.AliveCount}
+			}
+		case kp := <-c.keyPresses:
+			switch kp {
+			case 'p':
+				if workersPaused {
+					fmt.Printf("Instructing workers to resume...")
+					resumedTurn := new(stubs.CurrentTurn)
+					client.Call(stubs.ResumeEngine, true, resumedTurn)
+					workersPaused = false
+					fmt.Println("Workers resumed at turn: " + strconv.Itoa(resumedTurn.Turn))
+				} else {
+					fmt.Println("Instructing workers to pause...")
+					pausedTurn := new(stubs.CurrentTurn)
+					client.Call(stubs.PauseEngine, true, pausedTurn)
+					workersPaused = true
+					fmt.Println("Workers paused at turn: " + strconv.Itoa(pausedTurn.Turn))
+				}
+			case 'q':
+				if workersPaused {
+					fmt.Println("All excecution currently paused. Please resume to quit the world.")
+				} else {
+					fmt.Println("Quitting, getting state from workers & saving PGM.")
+					earlyResponse := new(stubs.GolAliveCells)
+					client.Call(stubs.InterruptEngine, true, earlyResponse)
+					returnedCells = earlyResponse.AliveCells
+					turnsComplete = earlyResponse.TurnsComplete
+					goto Exit
+				}
+			case 's':
+				if workersPaused {
+					fmt.Println("All excecution currently paused. Please resume to save the world.")
+				} else {
+					fmt.Println("Saving PGM...")
+					earlyResponse := new(stubs.GolAliveCells)
+					client.Call(stubs.InterruptEngine, true, earlyResponse)
+
+					returnedCells = earlyResponse.AliveCells
+					turnsComplete = earlyResponse.TurnsComplete
+
+					c.ioCommand <- ioOutput
+					c.ioFilename <- filename + "x" + strconv.Itoa(turnsComplete)
+
+					for i := 0; i < imageHeight; i++ {
+						for j := 0; j < imageWidth; j++ {
+							var value byte = 0
+							for _, cell := range returnedCells {
+								if cell.X == i && cell.Y == j {
+									value = 255
+								}
+							}
+							c.ioOutput <- value
+						}
+					}
+					fmt.Println("Finished saving PGM: " + filename + "x" + strconv.Itoa(turnsComplete))
+				}
+			}
 		case <-rpcCall.Done:
 			fmt.Println("RPC call is done")
 			returnedCells = response.AliveCells
-			c.events <- FinalTurnComplete{response.TurnsComplete, response.AliveCells}
+			turnsComplete = response.TurnsComplete
+
+			c.events <- FinalTurnComplete{turnsComplete, returnedCells}
 			goto Exit
 		}
 	}
 Exit:
-	fmt.Println("Escaped")
+	fmt.Println("Saving PGM & shutting down controller.")
 
 	//write final state of the world to pgm image
 
 	c.ioCommand <- ioOutput
-	c.ioFilename <- filename + "x" + strconv.Itoa(turns)
+	c.ioFilename <- filename + "x" + strconv.Itoa(turnsComplete)
 
 	for i := 0; i < imageHeight; i++ {
 		for j := 0; j < imageWidth; j++ {
@@ -132,7 +191,7 @@ Exit:
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 
-	c.events <- StateChange{turn, Quitting}
+	c.events <- StateChange{turnsComplete, Quitting}
 
 	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
 	close(c.events)

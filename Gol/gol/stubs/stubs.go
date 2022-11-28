@@ -4,6 +4,9 @@ import "uk.ac.bris.cs/gameoflife/util"
 
 var ProcessTurns = "GolEngine.ProcessTurns"
 var DoTick = "GolEngine.DoTick"
+var PauseEngine = "GolEngine.PauseEngine"
+var ResumeEngine = "GolEngine.ResumeEngine"
+var InterruptEngine = "GolEngine.InterruptEngine"
 
 type GolArgs struct {
 	World                [][]byte
@@ -18,4 +21,8 @@ type GolAliveCells struct {
 type TickReport struct {
 	Turns      int
 	AliveCount int
+}
+
+type CurrentTurn struct {
+	Turn int
 }
