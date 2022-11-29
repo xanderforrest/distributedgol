@@ -21,6 +21,9 @@ var m sync.Mutex
 var width int
 var height int
 var working = false
+var offset int
+var eHeight int
+var singleWorker = false
 var listener net.Listener
 
 func isAlive(cell byte) bool {
@@ -36,6 +39,8 @@ func getLiveNeighbours(width, height int, world [][]byte, a, b int) int {
 	var widthRight int
 	var heightUp int
 	var heightDown int
+
+	//fmt.Println("Getting neighbours\nWidth " + strconv.Itoa(width) + "\nHeight: " + strconv.Itoa(height) + "\na: " + strconv.Itoa(a) + "\nb: " + strconv.Itoa(b))
 
 	if a == 0 {
 		widthLeft = width - 1
@@ -131,11 +136,34 @@ func calculateAliveCount(world [][]byte) int {
 	return count
 }
 
-/*
 func (g *GolEngine) ProcessTurn(args stubs.EngineArgs, res *stubs.EngineResponse) (err error) {
+	m.Lock()
+	world = args.TotalWorld
 
+	fmt.Println("Engine Processing Turn between Y: " + strconv.Itoa(args.Offset) + " and Y: " + strconv.Itoa(args.Offset+args.Height))
+	fmt.Println("Total world given has " + strconv.Itoa(calculateAliveCount(world)) + " alive cells...")
+
+	aliveCells := []util.Cell{}
+	for i := 0; i < args.TWidth; i++ {
+		for j := args.Offset; j < args.Offset+args.Height; j++ {
+			neighbours := getLiveNeighbours(args.TWidth, args.THeight, world, i, j)
+			if world[i][j] == 0xff && (neighbours < 2 || neighbours > 3) {
+				// cell dies, don't add to alive cells (duh)
+			} else if world[i][j] == 0x0 && neighbours == 3 {
+				aliveCells = append(aliveCells, util.Cell{X: j, Y: i})
+			} else {
+				if isAlive(world[i][j]) {
+					aliveCells = append(aliveCells, util.Cell{X: j, Y: i})
+				}
+			}
+		}
+	}
+
+	res.AliveCells = aliveCells
+	m.Unlock()
+	return
 }
-*/
+
 func (g *GolEngine) ProcessTurns(args stubs.GolArgs, res *stubs.GolAliveCells) (err error) {
 	if !working { // If ProcessTurns is called again, it's a new client connection, continue working on current job
 		turns = args.Turns
@@ -226,9 +254,10 @@ func (g *GolEngine) KillEngine(_ bool, _ *bool) (err error) {
 }
 
 func main() {
-	fmt.Println("Super Cool Distributed Game of Life server is running...")
-	pAddr := flag.String("port", "8030", "Port to listen on")
+	pAddr := flag.String("port", "8031", "Port to listen on")
 	flag.Parse()
+	fmt.Println("Super Cool Distributed Game of Life Engine is running on port: " + *pAddr)
+
 	rpc.Register(&GolEngine{})
 	listener, _ := net.Listen("tcp", ":"+*pAddr)
 	defer listener.Close()
