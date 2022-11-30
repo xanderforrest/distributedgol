@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"runtime"
-
+	"time"
 	"uk.ac.bris.cs/gameoflife/gol"
 	"uk.ac.bris.cs/gameoflife/sdl"
 )
@@ -15,37 +15,33 @@ func main() {
 	var params gol.Params
 
 	flag.IntVar(
-		&params.Threads,
-		"t",
-		8,
-		"Specify the number of worker threads to use. Defaults to 8.")
-
-	flag.IntVar(
 		&params.ImageWidth,
 		"w",
-		512,
+		5120,
 		"Specify the width of the image. Defaults to 512.")
 
 	flag.IntVar(
 		&params.ImageHeight,
 		"h",
-		512,
+		5120,
 		"Specify the height of the image. Defaults to 512.")
 
 	flag.IntVar(
 		&params.Turns,
 		"turns",
-		500,
+		10,
 		"Specify the number of turns to process. Defaults to 10000000000.")
 
 	noVis := flag.Bool(
 		"noVis",
-		false,
+		true,
 		"Disables the SDL window, so there is no visualisation during the tests.")
 
 	flag.Parse()
 
-	fmt.Println("Threads:", params.Threads)
+	params.Threads = 2
+	params.Engines = 1
+
 	fmt.Println("Width:", params.ImageWidth)
 	fmt.Println("Height:", params.ImageHeight)
 
@@ -62,6 +58,8 @@ func main() {
 			switch event.(type) {
 			case gol.FinalTurnComplete:
 				complete = true
+				fmt.Println("Finished distributor at time: ")
+				fmt.Println(time.Now())
 			}
 		}
 	}

@@ -14,6 +14,8 @@ var ProcessTurn = "GolEngine.ProcessTurn"
 type GolArgs struct {
 	World                [][]byte
 	Width, Height, Turns int
+	Threads              int
+	Engines              int
 }
 
 type EngineArgs struct {

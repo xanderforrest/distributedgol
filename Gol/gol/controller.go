@@ -23,6 +23,7 @@ type distributorChannels struct {
 func savePGM(p Params, c distributorChannels, aliveCells []util.Cell, turns int) {
 	c.ioCommand <- ioOutput
 	c.ioFilename <- strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(turns)
+	fmt.Println("Started saving PGM")
 
 	for i := 0; i < p.ImageHeight; i++ {
 		for j := 0; j < p.ImageWidth; j++ {
@@ -39,6 +40,8 @@ func savePGM(p Params, c distributorChannels, aliveCells []util.Cell, turns int)
 }
 
 func distributor(p Params, c distributorChannels) {
+	fmt.Println("Started distributor at time: ")
+	fmt.Println(time.Now())
 	imageHeight := p.ImageHeight
 	imageWidth := p.ImageWidth
 
@@ -55,11 +58,11 @@ func distributor(p Params, c distributorChannels) {
 	}
 
 	ticker := time.NewTicker(2 * time.Second)
-
+	fmt.Println("Connecting to broker with IP: local")
 	client, _ := rpc.Dial("tcp", "127.0.0.1:8030")
-	defer client.Close()
+	//defer client.Close()
 
-	golArgs := stubs.GolArgs{Height: p.ImageHeight, Width: p.ImageWidth, Turns: p.Turns, World: world}
+	golArgs := stubs.GolArgs{Height: p.ImageHeight, Width: p.ImageWidth, Turns: p.Turns, World: world, Threads: p.Threads, Engines: p.Engines}
 	response := new(stubs.GolAliveCells)
 
 	status := new(stubs.EngineStatus)
@@ -71,6 +74,7 @@ func distributor(p Params, c distributorChannels) {
 	}
 
 	rpcCall := client.Go(stubs.ProcessTurns, golArgs, response, nil)
+	fmt.Println("Recieved back from engine")
 
 	var returnedCells []util.Cell
 	var turnsComplete int
@@ -82,9 +86,9 @@ func distributor(p Params, c distributorChannels) {
 			if workersPaused {
 				fmt.Printf("Ignoring Tick as workers paused")
 			} else {
-				fmt.Println("Ticker has ticked client side")
 				tickResponse := new(stubs.TickReport)
 				client.Call(stubs.DoTick, true, tickResponse)
+				fmt.Println("Ticker Report:\nTurns Complete: " + strconv.Itoa(tickResponse.Turns) + "\nAlive Cells: " + strconv.Itoa(tickResponse.AliveCount))
 				c.events <- AliveCellsCount{tickResponse.Turns, tickResponse.AliveCount}
 			}
 		case kp := <-c.keyPresses:
@@ -157,8 +161,9 @@ func distributor(p Params, c distributorChannels) {
 	}
 
 Exit:
+	ticker.Stop()
 	fmt.Println("Saving PGM & shutting down controller.")
-	savePGM(p, c, returnedCells, turnsComplete)
+	//savePGM(p, c, returnedCells, turnsComplete)
 
 	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
@@ -166,5 +171,6 @@ Exit:
 
 	c.events <- StateChange{turnsComplete, Quitting}
 	close(c.events)
-
+	client.Close()
+	fmt.Println("Reached end of Controller function")
 }
